@@ -20,8 +20,10 @@ package org.apache.xtable.delta;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import lombok.Builder;
+import lombok.extern.log4j.Log4j2;
 
 import org.apache.spark.sql.delta.Snapshot;
 import org.apache.spark.sql.delta.actions.AddFile;
@@ -35,6 +37,7 @@ import org.apache.xtable.spi.extractor.DataFileIterator;
 
 /** DeltaDataFileExtractor lets the consumer iterate over partitions. */
 @Builder
+@Log4j2
 public class DeltaDataFileExtractor {
 
   @Builder.Default
@@ -69,6 +72,51 @@ public class DeltaDataFileExtractor {
       this.partitionFields =
           partitionExtractor.convertFromDeltaPartitionFormat(
               schema, snapshot.metadata().partitionSchema());
+      boolean benchmark =
+          Boolean.parseBoolean(System.getProperty("xtable.delta.benchmark.allFiles", "false"));
+      if (benchmark) {
+        long t1 = System.nanoTime();
+        List<InternalDataFile> mapped1 =
+            snapshot.allFiles().collectAsList().stream()
+                .map(
+                    addFile ->
+                        actionsConverter.convertAddActionToInternalDataFile(
+                            addFile,
+                            snapshot,
+                            fileFormat,
+                            partitionFields,
+                            fields,
+                            includeColumnStats,
+                            partitionExtractor,
+                            fileStatsExtractor))
+                .collect(Collectors.toList());
+        long t2 = System.nanoTime();
+
+        long t3 = System.nanoTime();
+        int iterCount = 0;
+        java.util.Iterator<org.apache.spark.sql.delta.actions.AddFile> it =
+            snapshot.allFiles().toLocalIterator();
+        while (it.hasNext()) {
+          org.apache.spark.sql.delta.actions.AddFile add = it.next();
+          actionsConverter.convertAddActionToInternalDataFile(
+              add,
+              snapshot,
+              fileFormat,
+              partitionFields,
+              fields,
+              includeColumnStats,
+              partitionExtractor,
+              fileStatsExtractor);
+          iterCount++;
+        }
+        long t4 = System.nanoTime();
+        log.info(
+            "Delta allFiles benchmark: collectAsList.map={} ms ({} converted), toLocalIterator.map={} ms ({} iterated)",
+            (t2 - t1) / 1_000_000,
+            mapped1.size(),
+            (t4 - t3) / 1_000_000,
+            iterCount);
+      }
       this.addFileIterator = snapshot.allFiles().toLocalIterator();
     }
 
