@@ -30,6 +30,7 @@ import org.apache.spark.sql.delta.DeltaLog;
 import org.apache.spark.sql.delta.Snapshot;
 import org.apache.spark.sql.delta.actions.Action;
 import org.apache.spark.sql.delta.actions.AddFile;
+import org.apache.spark.sql.delta.actions.RemoveFile;
 
 import scala.collection.JavaConverters;
 import scala.collection.Seq;
@@ -67,11 +68,11 @@ public class DeltaDataFileUpdatesExtractor {
     // all files in the current delta snapshot are potential candidates for remove actions, i.e. if
     // the file is not present in the new snapshot (addedFiles) then the file is considered removed
     Snapshot snapshot = deltaLog.snapshot();
-    Map<String, Action> previousFiles = new HashMap<>();
+    Map<String, RemoveFile> previousFiles = new HashMap<>();
     java.util.Iterator<AddFile> it = snapshot.allFiles().toLocalIterator();
     while (it.hasNext()) {
       AddFile add = it.next();
-      Action remove = add.remove();
+      RemoveFile remove = add.remove();
       previousFiles.put(
           DeltaActionsConverter.getFullPathToFile(snapshot, remove.path()), remove);
     }
