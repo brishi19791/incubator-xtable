@@ -85,14 +85,12 @@ public class DeltaConversionSource implements ConversionSource<Long> {
 
   @Override
   public InternalTable getCurrentTable() {
-    DeltaLog deltaLog = DeltaLog.forTable(sparkSession, basePath);
     Snapshot snapshot = deltaLog.snapshot();
     return getTable(snapshot.version());
   }
 
   @Override
   public InternalSnapshot getCurrentSnapshot() {
-    DeltaLog deltaLog = DeltaLog.forTable(sparkSession, basePath);
     Snapshot snapshot = deltaLog.snapshot();
     InternalTable table = getTable(snapshot.version());
     return InternalSnapshot.builder()
@@ -226,9 +224,12 @@ public class DeltaConversionSource implements ConversionSource<Long> {
 
   private List<PartitionFileGroup> getInternalDataFiles(Snapshot snapshot, InternalSchema schema) {
     try (DataFileIterator fileIterator = dataFileExtractor.iterator(snapshot, schema)) {
-      List<InternalDataFile> dataFiles = new ArrayList<>();
-      fileIterator.forEachRemaining(dataFiles::add);
-      return PartitionFileGroup.fromFiles(dataFiles);
+      return PartitionFileGroup.fromFiles(
+          java.util.stream.StreamSupport.stream(
+                  java.util.Spliterators.spliteratorUnknownSize(fileIterator, 0),
+                  false)
+              // downstream collectors can leverage parallelism if configured
+              );
     } catch (Exception e) {
       throw new ReadException("Failed to iterate through Delta data files", e);
     }

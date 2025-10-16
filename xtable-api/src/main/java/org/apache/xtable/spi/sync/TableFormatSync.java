@@ -65,27 +65,27 @@ public class TableFormatSync {
   public Map<String, SyncResult> syncSnapshot(
       Collection<ConversionTarget> conversionTargets, InternalSnapshot snapshot) {
     Instant startTime = Instant.now();
-    Map<String, SyncResult> results = new HashMap<>();
-    for (ConversionTarget conversionTarget : conversionTargets) {
-      try {
-        InternalTable internalTable = snapshot.getTable();
-        results.put(
-            conversionTarget.getTableFormat(),
-            getSyncResult(
-                conversionTarget,
-                SyncMode.FULL,
-                internalTable,
-                target -> target.syncFilesForSnapshot(snapshot.getPartitionedDataFiles()),
-                startTime,
-                snapshot.getPendingCommits(),
-                snapshot.getSourceIdentifier()));
-      } catch (Exception e) {
-        log.error("Failed to sync snapshot", e);
-        results.put(
-            conversionTarget.getTableFormat(), buildResultForError(SyncMode.FULL, startTime, e));
-      }
-    }
-    return results;
+    InternalTable internalTable = snapshot.getTable();
+    return conversionTargets
+        .parallelStream()
+        .collect(
+            Collectors.toMap(
+                ConversionTarget::getTableFormat,
+                target -> {
+                  try {
+                    return getSyncResult(
+                        target,
+                        SyncMode.FULL,
+                        internalTable,
+                        t -> t.syncFilesForSnapshot(snapshot.getPartitionedDataFiles()),
+                        startTime,
+                        snapshot.getPendingCommits(),
+                        snapshot.getSourceIdentifier());
+                  } catch (Exception e) {
+                    log.error("Failed to sync snapshot", e);
+                    return buildResultForError(SyncMode.FULL, startTime, e);
+                  }
+                }));
   }
 
   /**
@@ -99,8 +99,9 @@ public class TableFormatSync {
   public Map<String, List<SyncResult>> syncChanges(
       Map<ConversionTarget, TableSyncMetadata> conversionTargetWithMetadata,
       IncrementalTableChanges changes) {
-    Map<String, List<SyncResult>> results = new HashMap<>();
-    Set<ConversionTarget> conversionTargetsWithFailures = new HashSet<>();
+    Map<String, List<SyncResult>> results = new java.util.concurrent.ConcurrentHashMap<>();
+    Set<ConversionTarget> conversionTargetsWithFailures =
+        java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
     while (changes.getTableChanges().hasNext()) {
       TableChange change = changes.getTableChanges().next();
       Collection<ConversionTarget> conversionTargetsToSync =
@@ -112,29 +113,36 @@ public class TableFormatSync {
                   })
               .map(Map.Entry::getKey)
               .collect(Collectors.toList());
-      for (ConversionTarget conversionTarget : conversionTargetsToSync) {
-        if (conversionTargetsWithFailures.contains(conversionTarget)) {
-          continue;
-        }
-        Instant startTime = Instant.now();
-        List<SyncResult> resultsForFormat =
-            results.computeIfAbsent(conversionTarget.getTableFormat(), key -> new ArrayList<>());
-        try {
-          resultsForFormat.add(
-              getSyncResult(
-                  conversionTarget,
-                  SyncMode.INCREMENTAL,
-                  change.getTableAsOfChange(),
-                  target -> target.syncFilesForDiff(change.getFilesDiff()),
-                  startTime,
-                  changes.getPendingCommits(),
-                  change.getSourceIdentifier()));
-        } catch (Exception e) {
-          log.error("Failed to sync table changes", e);
-          resultsForFormat.add(buildResultForError(SyncMode.INCREMENTAL, startTime, e));
-          conversionTargetsWithFailures.add(conversionTarget);
-        }
-      }
+
+      conversionTargetsToSync
+          .parallelStream()
+          .filter(target -> !conversionTargetsWithFailures.contains(target))
+          .forEach(
+              conversionTarget -> {
+                Instant startTime = Instant.now();
+                try {
+                  SyncResult syncResult =
+                      getSyncResult(
+                          conversionTarget,
+                          SyncMode.INCREMENTAL,
+                          change.getTableAsOfChange(),
+                          target -> target.syncFilesForDiff(change.getFilesDiff()),
+                          startTime,
+                          changes.getPendingCommits(),
+                          change.getSourceIdentifier());
+                  results
+                      .computeIfAbsent(conversionTarget.getTableFormat(),
+                          key -> java.util.Collections.synchronizedList(new ArrayList<>()))
+                      .add(syncResult);
+                } catch (Exception e) {
+                  log.error("Failed to sync table changes", e);
+                  results
+                      .computeIfAbsent(conversionTarget.getTableFormat(),
+                          key -> java.util.Collections.synchronizedList(new ArrayList<>()))
+                      .add(buildResultForError(SyncMode.INCREMENTAL, startTime, e));
+                  conversionTargetsWithFailures.add(conversionTarget);
+                }
+              });
     }
     return results;
   }
