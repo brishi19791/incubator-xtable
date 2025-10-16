@@ -24,6 +24,7 @@ import java.util.List;
 import lombok.Builder;
 
 import org.apache.spark.sql.delta.Snapshot;
+import org.apache.spark.sql.delta.actions.AddFile;
 
 import org.apache.xtable.model.schema.InternalField;
 import org.apache.xtable.model.schema.InternalPartitionField;
@@ -58,7 +59,7 @@ public class DeltaDataFileExtractor {
     private final FileFormat fileFormat;
     private final List<InternalField> fields;
     private final List<InternalPartitionField> partitionFields;
-    private final Iterator<InternalDataFile> dataFilesIterator;
+    private final Iterator<AddFile> addFileIterator;
 
     private DeltaDataFileIterator(
         Snapshot snapshot, InternalSchema schema, boolean includeColumnStats) {
@@ -68,20 +69,7 @@ public class DeltaDataFileExtractor {
       this.partitionFields =
           partitionExtractor.convertFromDeltaPartitionFormat(
               schema, snapshot.metadata().partitionSchema());
-      this.dataFilesIterator =
-          snapshot.allFiles().collectAsList().stream()
-              .map(
-                  addFile ->
-                      actionsConverter.convertAddActionToInternalDataFile(
-                          addFile,
-                          snapshot,
-                          fileFormat,
-                          partitionFields,
-                          fields,
-                          includeColumnStats,
-                          partitionExtractor,
-                          fileStatsExtractor))
-              .iterator();
+      this.addFileIterator = snapshot.allFiles().toLocalIterator();
     }
 
     @Override
@@ -89,12 +77,21 @@ public class DeltaDataFileExtractor {
 
     @Override
     public boolean hasNext() {
-      return this.dataFilesIterator.hasNext();
+      return this.addFileIterator.hasNext();
     }
 
     @Override
     public InternalDataFile next() {
-      return dataFilesIterator.next();
+      AddFile addFile = addFileIterator.next();
+      return actionsConverter.convertAddActionToInternalDataFile(
+          addFile,
+          snapshot,
+          fileFormat,
+          partitionFields,
+          fields,
+          includeColumnStats,
+          partitionExtractor,
+          fileStatsExtractor);
     }
   }
 }
