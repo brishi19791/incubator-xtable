@@ -67,13 +67,14 @@ public class DeltaDataFileUpdatesExtractor {
     // all files in the current delta snapshot are potential candidates for remove actions, i.e. if
     // the file is not present in the new snapshot (addedFiles) then the file is considered removed
     Snapshot snapshot = deltaLog.snapshot();
-    Map<String, Action> previousFiles =
-        snapshot.allFiles().collectAsList().stream()
-            .map(AddFile::remove)
-            .collect(
-                Collectors.toMap(
-                    file -> DeltaActionsConverter.getFullPathToFile(snapshot, file.path()),
-                    file -> file));
+    Map<String, Action> previousFiles = new HashMap<>();
+    java.util.Iterator<AddFile> it = snapshot.allFiles().toLocalIterator();
+    while (it.hasNext()) {
+      AddFile add = it.next();
+      Action remove = add.remove();
+      previousFiles.put(
+          DeltaActionsConverter.getFullPathToFile(snapshot, remove.path()), remove);
+    }
 
     FilesDiff<InternalFile, Action> diff =
         InternalFilesDiff.findNewAndRemovedFiles(partitionedDataFiles, previousFiles);
