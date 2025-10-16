@@ -21,7 +21,7 @@ targets _'interoperability'_ among different lakehouse table formats. By being a
 OneTable allows users to seamlessly translate metadata between the source and target table formats, without the need to 
 rewrite or duplicate the actual data files.
 
-<img src="/images/blog/XTable/xtable-github.png" alt="drawing" style={{width:'80%', display:'block', marginLeft:'auto', marginRight:'auto', marginTop:'18pt', marginBottom:'18pt'}} />
+<img src="/images/blog/XTable/xtable-github.png" alt="drawing" style={{width:'80%', display:'block', marginLeft:'auto', marginRight:'auto', marginTop:'18pt', marginBottom:'18pt'}} loading="lazy" decoding="async" />
 
 The goal of OneTable was to anchor its success in neutrality, guided by strong community values. From the very beginning, 
 the project[ expressed its desire](https://cwiki.apache.org/confluence/display/INCUBATOR/XTable+Proposal) to be incubated 
@@ -52,7 +52,7 @@ potential for XTable to become a key part of the ASF ecosystem, contributing to 
 the public good.
 
 <img src="/images/blog/XTable/xtable-docs.png" alt="drawing" style={{width:'80%', display:'block', marginLeft:'auto', 
-marginRight:'auto', marginTop:'18pt', marginBottom:'18pt'}} />
+marginRight:'auto', marginTop:'18pt', marginBottom:'18pt'}} loading="lazy" decoding="async" />
 
 For those interested in exploring Apache XTable™, the official website is a good starting point. The documentation 
 section hosts a great hands-on [quickstart](https://xtable.apache.org/docs/how-to) guide to getting acquainted with XTable, 

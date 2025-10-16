@@ -25,6 +25,19 @@ const config = {
 
   // add new pages here
     plugins: [
+      '@docusaurus/plugin-ideal-image',
+      [
+        '@docusaurus/plugin-pwa',
+        {
+          debug: false,
+          offlineModeActivationStrategies: ['appInstalled', 'standalone', 'queryString'],
+          pwaHead: [
+            { tagName: 'link', rel: 'icon', href: '/images/xtable-favicon.png' },
+            { tagName: 'link', rel: 'manifest', href: '/manifest.json' },
+            { tagName: 'meta', name: 'theme-color', content: '#2160fd' },
+          ],
+        },
+      ],
       [
         '@docusaurus/plugin-content-docs',
         {
