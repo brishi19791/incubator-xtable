@@ -22,9 +22,11 @@ import static org.apache.xtable.delta.ScalaUtils.convertJavaMapToScala;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import lombok.Builder;
+import lombok.extern.log4j.Log4j2;
 
 import org.apache.spark.sql.delta.DeltaLog;
 import org.apache.spark.sql.delta.Snapshot;
@@ -48,6 +50,7 @@ import org.apache.xtable.model.storage.PartitionFileGroup;
 import org.apache.xtable.paths.PathUtils;
 
 @Builder
+@Log4j2
 public class DeltaDataFileUpdatesExtractor {
   @Builder.Default
   private final DeltaStatsExtractor deltaStatsExtractor = DeltaStatsExtractor.getInstance();
@@ -68,6 +71,38 @@ public class DeltaDataFileUpdatesExtractor {
     // all files in the current delta snapshot are potential candidates for remove actions, i.e. if
     // the file is not present in the new snapshot (addedFiles) then the file is considered removed
     Snapshot snapshot = deltaLog.snapshot();
+    boolean benchmark =
+        Boolean.parseBoolean(System.getProperty("xtable.delta.benchmark.allFiles", "false"));
+    if (benchmark) {
+      long t1 = System.nanoTime();
+      Map<String, RemoveFile> prev1 =
+          snapshot.allFiles().collectAsList().stream()
+              .map(AddFile::remove)
+              .collect(
+                  Collectors.toMap(
+                      rf -> DeltaActionsConverter.getFullPathToFile(snapshot, rf.path()),
+                      rf -> rf));
+      long t2 = System.nanoTime();
+
+      long t3 = System.nanoTime();
+      int iterCount = 0;
+      Map<String, RemoveFile> prev2 = new HashMap<>();
+      java.util.Iterator<AddFile> it2 = snapshot.allFiles().toLocalIterator();
+      while (it2.hasNext()) {
+        AddFile add = it2.next();
+        RemoveFile remove = add.remove();
+        prev2.put(DeltaActionsConverter.getFullPathToFile(snapshot, remove.path()), remove);
+        iterCount++;
+      }
+      long t4 = System.nanoTime();
+      log.info(
+          "Delta snapshot previousFiles benchmark: collectAsList.map={} ms ({} entries), toLocalIterator.map={} ms ({} iterated)",
+          (t2 - t1) / 1_000_000,
+          prev1.size(),
+          (t4 - t3) / 1_000_000,
+          iterCount);
+    }
+
     Map<String, RemoveFile> previousFiles = new HashMap<>();
     java.util.Iterator<AddFile> it = snapshot.allFiles().toLocalIterator();
     while (it.hasNext()) {
@@ -77,7 +112,7 @@ public class DeltaDataFileUpdatesExtractor {
           DeltaActionsConverter.getFullPathToFile(snapshot, remove.path()), remove);
     }
 
-    FilesDiff<InternalFile, Action> diff =
+    FilesDiff<InternalFile, RemoveFile> diff =
         InternalFilesDiff.findNewAndRemovedFiles(partitionedDataFiles, previousFiles);
 
     return applyDiff(
