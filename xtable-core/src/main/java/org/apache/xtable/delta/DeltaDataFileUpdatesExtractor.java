@@ -120,7 +120,10 @@ public class DeltaDataFileUpdatesExtractor {
             dataFile.getFileSizeBytes(),
             dataFile.getLastModified(),
             true,
-            getColumnStats(schema, dataFile.getRecordCount(), dataFile.getColumnStats()),
+            // Allow callers to disable stats emission by passing an empty list in schema
+            (schema == null || schema.getFields() == null || schema.getFields().isEmpty())
+                ? null
+                : getColumnStats(schema, dataFile.getRecordCount(), dataFile.getColumnStats()),
             null,
             null));
   }

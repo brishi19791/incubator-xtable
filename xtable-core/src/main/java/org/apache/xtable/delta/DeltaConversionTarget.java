@@ -187,18 +187,36 @@ public class DeltaConversionTarget implements ConversionTarget {
 
   @Override
   public void syncFilesForSnapshot(List<PartitionFileGroup> partitionedDataFiles) {
+    InternalSchema schemaToUse = transactionState.getLatestSchemaInternal();
+    // Allow callers to disable stats emission by setting empty schema via property
+    if (shouldSkipDeltaStats()) {
+      schemaToUse = InternalSchema.builder().fields(java.util.Collections.emptyList()).build();
+    }
     transactionState.setActions(
-        dataFileUpdatesExtractor.applySnapshot(
-            deltaLog, partitionedDataFiles, transactionState.getLatestSchemaInternal()));
+        dataFileUpdatesExtractor.applySnapshot(deltaLog, partitionedDataFiles, schemaToUse));
   }
 
   @Override
   public void syncFilesForDiff(InternalFilesDiff internalFilesDiff) {
+    InternalSchema schemaToUse = transactionState.getLatestSchemaInternal();
+    if (shouldSkipDeltaStats()) {
+      schemaToUse = InternalSchema.builder().fields(java.util.Collections.emptyList()).build();
+    }
     transactionState.setActions(
         dataFileUpdatesExtractor.applyDiff(
-            internalFilesDiff,
-            transactionState.getLatestSchemaInternal(),
-            deltaLog.dataPath().toString()));
+            internalFilesDiff, schemaToUse, deltaLog.dataPath().toString()));
+  }
+
+  private boolean shouldSkipDeltaStats() {
+    if (deltaLog == null || deltaLog.snapshot() == null) return false;
+    // Read an opt-in property from table metadata tags written earlier if present
+    Option<String> val =
+        deltaLog
+            .snapshot()
+            .metadata()
+            .configuration()
+            .get("xtable.delta.emitColumnStats");
+    return !val.isEmpty() && !Boolean.parseBoolean(val.get());
   }
 
   @Override
