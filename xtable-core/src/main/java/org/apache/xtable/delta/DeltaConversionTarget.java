@@ -201,6 +201,8 @@ public class DeltaConversionTarget implements ConversionTarget {
             deltaLog.dataPath().toString()));
   }
 
+  private boolean shouldSkipDeltaStats() { return false; }
+
   @Override
   public void completeSync() {
     transactionState.commitTransaction();

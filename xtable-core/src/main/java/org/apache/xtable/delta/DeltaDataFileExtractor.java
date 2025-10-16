@@ -20,10 +20,13 @@ package org.apache.xtable.delta;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import lombok.Builder;
+import lombok.extern.log4j.Log4j2;
 
 import org.apache.spark.sql.delta.Snapshot;
+import org.apache.spark.sql.delta.actions.AddFile;
 
 import org.apache.xtable.model.schema.InternalField;
 import org.apache.xtable.model.schema.InternalPartitionField;
@@ -34,6 +37,7 @@ import org.apache.xtable.spi.extractor.DataFileIterator;
 
 /** DeltaDataFileExtractor lets the consumer iterate over partitions. */
 @Builder
+@Log4j2
 public class DeltaDataFileExtractor {
 
   @Builder.Default
@@ -58,7 +62,9 @@ public class DeltaDataFileExtractor {
     private final FileFormat fileFormat;
     private final List<InternalField> fields;
     private final List<InternalPartitionField> partitionFields;
-    private final Iterator<InternalDataFile> dataFilesIterator;
+    private final Iterator<AddFile> addFileIterator;
+    private final Snapshot snapshotRef;
+    private final boolean includeColumnStatsRef;
 
     private DeltaDataFileIterator(
         Snapshot snapshot, InternalSchema schema, boolean includeColumnStats) {
@@ -68,20 +74,54 @@ public class DeltaDataFileExtractor {
       this.partitionFields =
           partitionExtractor.convertFromDeltaPartitionFormat(
               schema, snapshot.metadata().partitionSchema());
-      this.dataFilesIterator =
-          snapshot.allFiles().collectAsList().stream()
-              .map(
-                  addFile ->
-                      actionsConverter.convertAddActionToInternalDataFile(
-                          addFile,
-                          snapshot,
-                          fileFormat,
-                          partitionFields,
-                          fields,
-                          includeColumnStats,
-                          partitionExtractor,
-                          fileStatsExtractor))
-              .iterator();
+      this.snapshotRef = snapshot;
+      this.includeColumnStatsRef = includeColumnStats;
+      boolean benchmark =
+          Boolean.parseBoolean(System.getProperty("xtable.delta.benchmark.allFiles", "false"));
+      if (benchmark) {
+        long t1 = System.nanoTime();
+        List<InternalDataFile> mapped1 =
+            snapshotRef.allFiles().collectAsList().stream()
+                .map(
+                    addFile ->
+                        actionsConverter.convertAddActionToInternalDataFile(
+                            addFile,
+                            snapshotRef,
+                            fileFormat,
+                            partitionFields,
+                            fields,
+                            includeColumnStatsRef,
+                            partitionExtractor,
+                            fileStatsExtractor))
+                .collect(Collectors.toList());
+        long t2 = System.nanoTime();
+
+        long t3 = System.nanoTime();
+        int iterCount = 0;
+        java.util.Iterator<org.apache.spark.sql.delta.actions.AddFile> it =
+            snapshotRef.allFiles().toLocalIterator();
+        while (it.hasNext()) {
+          org.apache.spark.sql.delta.actions.AddFile add = it.next();
+          actionsConverter.convertAddActionToInternalDataFile(
+              add,
+              snapshotRef,
+              fileFormat,
+              partitionFields,
+              fields,
+              includeColumnStatsRef,
+              partitionExtractor,
+              fileStatsExtractor);
+          iterCount++;
+        }
+        long t4 = System.nanoTime();
+        log.info(
+            "Delta allFiles benchmark: collectAsList.map={} ms ({} converted), toLocalIterator.map={} ms ({} iterated)",
+            (t2 - t1) / 1_000_000,
+            mapped1.size(),
+            (t4 - t3) / 1_000_000,
+            iterCount);
+      }
+      this.addFileIterator = snapshotRef.allFiles().toLocalIterator();
     }
 
     @Override
@@ -89,12 +129,21 @@ public class DeltaDataFileExtractor {
 
     @Override
     public boolean hasNext() {
-      return this.dataFilesIterator.hasNext();
+      return this.addFileIterator.hasNext();
     }
 
     @Override
     public InternalDataFile next() {
-      return dataFilesIterator.next();
+      AddFile addFile = addFileIterator.next();
+      return actionsConverter.convertAddActionToInternalDataFile(
+          addFile,
+          snapshotRef,
+          fileFormat,
+          partitionFields,
+          fields,
+          includeColumnStatsRef,
+          partitionExtractor,
+          fileStatsExtractor);
     }
   }
 }

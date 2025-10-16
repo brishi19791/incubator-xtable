@@ -85,16 +85,14 @@ public class DeltaConversionSource implements ConversionSource<Long> {
 
   @Override
   public InternalTable getCurrentTable() {
-    DeltaLog deltaLog = DeltaLog.forTable(sparkSession, basePath);
     Snapshot snapshot = deltaLog.snapshot();
-    return getTable(snapshot.version());
+    return tableExtractor.table(deltaLog, tableName, snapshot);
   }
 
   @Override
   public InternalSnapshot getCurrentSnapshot() {
-    DeltaLog deltaLog = DeltaLog.forTable(sparkSession, basePath);
     Snapshot snapshot = deltaLog.snapshot();
-    InternalTable table = getTable(snapshot.version());
+    InternalTable table = tableExtractor.table(deltaLog, tableName, snapshot);
     return InternalSnapshot.builder()
         .table(table)
         .partitionedDataFiles(getInternalDataFiles(snapshot, table.getReadSchema()))
@@ -104,9 +102,9 @@ public class DeltaConversionSource implements ConversionSource<Long> {
 
   @Override
   public TableChange getTableChangeForCommit(Long versionNumber) {
-    InternalTable tableAtVersion = tableExtractor.table(deltaLog, tableName, versionNumber);
-    List<Action> actionsForVersion = getChangesState().getActionsForVersion(versionNumber);
     Snapshot snapshotAtVersion = deltaLog.getSnapshotAt(versionNumber, Option.empty());
+    InternalTable tableAtVersion = tableExtractor.table(deltaLog, tableName, snapshotAtVersion);
+    List<Action> actionsForVersion = getChangesState().getActionsForVersion(versionNumber);
     FileFormat fileFormat =
         actionsConverter.convertToFileFormat(snapshotAtVersion.metadata().format().provider());
 
@@ -226,9 +224,12 @@ public class DeltaConversionSource implements ConversionSource<Long> {
 
   private List<PartitionFileGroup> getInternalDataFiles(Snapshot snapshot, InternalSchema schema) {
     try (DataFileIterator fileIterator = dataFileExtractor.iterator(snapshot, schema)) {
-      List<InternalDataFile> dataFiles = new ArrayList<>();
-      fileIterator.forEachRemaining(dataFiles::add);
-      return PartitionFileGroup.fromFiles(dataFiles);
+      return PartitionFileGroup.fromFiles(
+          java.util.stream.StreamSupport.stream(
+                  java.util.Spliterators.spliteratorUnknownSize(fileIterator, 0),
+                  false)
+              // downstream collectors can leverage parallelism if configured
+              );
     } catch (Exception e) {
       throw new ReadException("Failed to iterate through Delta data files", e);
     }

@@ -149,18 +149,26 @@ public class IcebergConversionSource implements ConversionSource<Snapshot> {
     Snapshot currentSnapshot = iceTable.currentSnapshot();
     InternalTable irTable = getTable(currentSnapshot);
 
-    TableScan scan =
-        iceTable.newScan().useSnapshot(currentSnapshot.snapshotId()).includeColumnStats();
+    boolean includeStats = true;
+    if (sourceTableConfig.getAdditionalProperties() != null) {
+      String flag =
+          sourceTableConfig.getAdditionalProperties().getProperty("xtable.iceberg.includeColumnStatsOnRead");
+      if (flag != null) {
+        includeStats = Boolean.parseBoolean(flag);
+      }
+    }
+    TableScan scan = iceTable.newScan().useSnapshot(currentSnapshot.snapshotId());
+    if (includeStats) {
+      scan = scan.includeColumnStats();
+    }
     PartitionSpec partitionSpec = iceTable.spec();
     List<PartitionFileGroup> partitionedDataFiles;
     try (CloseableIterable<FileScanTask> files = scan.planFiles()) {
-      List<InternalDataFile> irFiles = new ArrayList<>();
-      for (FileScanTask fileScanTask : files) {
-        DataFile file = fileScanTask.file();
-        InternalDataFile irDataFile = fromIceberg(file, partitionSpec, irTable);
-        irFiles.add(irDataFile);
-      }
-      partitionedDataFiles = PartitionFileGroup.fromFiles(irFiles);
+      partitionedDataFiles =
+          PartitionFileGroup.fromFiles(
+              java.util.stream.StreamSupport.stream(files.spliterator(), false)
+                  .map(org.apache.iceberg.FileScanTask::file)
+                  .map(file -> fromIceberg(file, partitionSpec, irTable)));
     } catch (IOException e) {
       throw new ReadException("Failed to fetch current snapshot files from Iceberg source", e);
     }

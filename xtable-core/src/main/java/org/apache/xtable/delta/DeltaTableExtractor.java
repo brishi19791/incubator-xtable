@@ -44,6 +44,13 @@ public class DeltaTableExtractor {
 
   public InternalTable table(DeltaLog deltaLog, String tableName, Long version) {
     Snapshot snapshot = deltaLog.getSnapshotAt(version, Option.empty());
+    return table(deltaLog, tableName, snapshot);
+  }
+
+  /**
+   * Builds an InternalTable from a pre-fetched Delta {@link Snapshot} to avoid duplicate lookups.
+   */
+  public InternalTable table(DeltaLog deltaLog, String tableName, Snapshot snapshot) {
     InternalSchema schema = schemaExtractor.toInternalSchema(snapshot.metadata().schema());
     List<InternalPartitionField> partitionFields =
         DeltaPartitionExtractor.getInstance()
