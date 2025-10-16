@@ -63,6 +63,8 @@ public class DeltaDataFileExtractor {
     private final List<InternalField> fields;
     private final List<InternalPartitionField> partitionFields;
     private final Iterator<AddFile> addFileIterator;
+    private final Snapshot snapshotRef;
+    private final boolean includeColumnStatsRef;
 
     private DeltaDataFileIterator(
         Snapshot snapshot, InternalSchema schema, boolean includeColumnStats) {
@@ -72,21 +74,23 @@ public class DeltaDataFileExtractor {
       this.partitionFields =
           partitionExtractor.convertFromDeltaPartitionFormat(
               schema, snapshot.metadata().partitionSchema());
+      this.snapshotRef = snapshot;
+      this.includeColumnStatsRef = includeColumnStats;
       boolean benchmark =
           Boolean.parseBoolean(System.getProperty("xtable.delta.benchmark.allFiles", "false"));
       if (benchmark) {
         long t1 = System.nanoTime();
         List<InternalDataFile> mapped1 =
-            snapshot.allFiles().collectAsList().stream()
+            snapshotRef.allFiles().collectAsList().stream()
                 .map(
                     addFile ->
                         actionsConverter.convertAddActionToInternalDataFile(
                             addFile,
-                            snapshot,
+                            snapshotRef,
                             fileFormat,
                             partitionFields,
                             fields,
-                            includeColumnStats,
+                            includeColumnStatsRef,
                             partitionExtractor,
                             fileStatsExtractor))
                 .collect(Collectors.toList());
@@ -95,16 +99,16 @@ public class DeltaDataFileExtractor {
         long t3 = System.nanoTime();
         int iterCount = 0;
         java.util.Iterator<org.apache.spark.sql.delta.actions.AddFile> it =
-            snapshot.allFiles().toLocalIterator();
+            snapshotRef.allFiles().toLocalIterator();
         while (it.hasNext()) {
           org.apache.spark.sql.delta.actions.AddFile add = it.next();
           actionsConverter.convertAddActionToInternalDataFile(
               add,
-              snapshot,
+              snapshotRef,
               fileFormat,
               partitionFields,
               fields,
-              includeColumnStats,
+              includeColumnStatsRef,
               partitionExtractor,
               fileStatsExtractor);
           iterCount++;
@@ -117,7 +121,7 @@ public class DeltaDataFileExtractor {
             (t4 - t3) / 1_000_000,
             iterCount);
       }
-      this.addFileIterator = snapshot.allFiles().toLocalIterator();
+      this.addFileIterator = snapshotRef.allFiles().toLocalIterator();
     }
 
     @Override
@@ -133,11 +137,11 @@ public class DeltaDataFileExtractor {
       AddFile addFile = addFileIterator.next();
       return actionsConverter.convertAddActionToInternalDataFile(
           addFile,
-          snapshot,
+          snapshotRef,
           fileFormat,
           partitionFields,
           fields,
-          includeColumnStats,
+          includeColumnStatsRef,
           partitionExtractor,
           fileStatsExtractor);
     }
