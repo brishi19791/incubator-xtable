@@ -187,24 +187,21 @@ public class DeltaConversionTarget implements ConversionTarget {
 
   @Override
   public void syncFilesForSnapshot(List<PartitionFileGroup> partitionedDataFiles) {
-    InternalSchema schemaToUse = transactionState.getLatestSchemaInternal();
-    // Allow callers to disable stats emission by setting empty schema via property
-    if (shouldSkipDeltaStats()) {
-      schemaToUse = InternalSchema.builder().fields(java.util.Collections.emptyList()).build();
-    }
+    boolean emitStats = !shouldSkipDeltaStats();
     transactionState.setActions(
-        dataFileUpdatesExtractor.applySnapshot(deltaLog, partitionedDataFiles, schemaToUse));
+        dataFileUpdatesExtractor.applySnapshot(
+            deltaLog, partitionedDataFiles, transactionState.getLatestSchemaInternal(), emitStats));
   }
 
   @Override
   public void syncFilesForDiff(InternalFilesDiff internalFilesDiff) {
-    InternalSchema schemaToUse = transactionState.getLatestSchemaInternal();
-    if (shouldSkipDeltaStats()) {
-      schemaToUse = InternalSchema.builder().fields(java.util.Collections.emptyList()).build();
-    }
+    boolean emitStats = !shouldSkipDeltaStats();
     transactionState.setActions(
         dataFileUpdatesExtractor.applyDiff(
-            internalFilesDiff, schemaToUse, deltaLog.dataPath().toString()));
+            internalFilesDiff,
+            transactionState.getLatestSchemaInternal(),
+            deltaLog.dataPath().toString(),
+            emitStats));
   }
 
   private boolean shouldSkipDeltaStats() {
