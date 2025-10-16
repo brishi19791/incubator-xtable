@@ -63,15 +63,6 @@ public class DeltaDataFileUpdatesExtractor {
       DeltaLog deltaLog,
       List<PartitionFileGroup> partitionedDataFiles,
       InternalSchema tableSchema) {
-    // default behavior preserves existing stats emission
-    return applySnapshot(deltaLog, partitionedDataFiles, tableSchema, true);
-  }
-
-  public Seq<Action> applySnapshot(
-      DeltaLog deltaLog,
-      List<PartitionFileGroup> partitionedDataFiles,
-      InternalSchema tableSchema,
-      boolean emitStats) {
 
     // all files in the current delta snapshot are potential candidates for remove actions, i.e. if
     // the file is not present in the new snapshot (addedFiles) then the file is considered removed
@@ -88,43 +79,29 @@ public class DeltaDataFileUpdatesExtractor {
         InternalFilesDiff.findNewAndRemovedFiles(partitionedDataFiles, previousFiles);
 
     return applyDiff(
-        diff.getFilesAdded(),
-        diff.getFilesRemoved(),
-        tableSchema,
-        deltaLog.dataPath().toString(),
-        emitStats);
+        diff.getFilesAdded(), diff.getFilesRemoved(), tableSchema, deltaLog.dataPath().toString());
   }
 
   public Seq<Action> applyDiff(
       InternalFilesDiff internalFilesDiff, InternalSchema tableSchema, String tableBasePath) {
-    return applyDiff(internalFilesDiff, tableSchema, tableBasePath, true);
-  }
-
-  public Seq<Action> applyDiff(
-      InternalFilesDiff internalFilesDiff,
-      InternalSchema tableSchema,
-      String tableBasePath,
-      boolean emitStats) {
     List<Action> removeActions =
         internalFilesDiff.dataFilesRemoved().stream()
-            .flatMap(dFile -> createAddFileAction(dFile, tableSchema, tableBasePath, emitStats))
+            .flatMap(dFile -> createAddFileAction(dFile, tableSchema, tableBasePath))
             .map(AddFile::remove)
             .collect(CustomCollectors.toList(internalFilesDiff.dataFilesRemoved().size()));
-    return applyDiff(
-        internalFilesDiff.dataFilesAdded(), removeActions, tableSchema, tableBasePath, emitStats);
+    return applyDiff(internalFilesDiff.dataFilesAdded(), removeActions, tableSchema, tableBasePath);
   }
 
   private Seq<Action> applyDiff(
       Set<? extends InternalFile> filesAdded,
       Collection<Action> removeFileActions,
       InternalSchema tableSchema,
-      String tableBasePath,
-      boolean emitStats) {
+      String tableBasePath) {
     Stream<Action> addActions =
         filesAdded.stream()
             .filter(InternalDataFile.class::isInstance)
             .map(file -> (InternalDataFile) file)
-            .flatMap(dFile -> createAddFileAction(dFile, tableSchema, tableBasePath, emitStats));
+            .flatMap(dFile -> createAddFileAction(dFile, tableSchema, tableBasePath));
     int totalActions = filesAdded.size() + removeFileActions.size();
     List<Action> allActions =
         Stream.concat(addActions, removeFileActions.stream())
@@ -133,7 +110,7 @@ public class DeltaDataFileUpdatesExtractor {
   }
 
   private Stream<AddFile> createAddFileAction(
-      InternalDataFile dataFile, InternalSchema schema, String tableBasePath, boolean emitStats) {
+      InternalDataFile dataFile, InternalSchema schema, String tableBasePath) {
     return Stream.of(
         new AddFile(
             // Delta Lake supports relative and absolute paths in theory but relative paths seem
@@ -144,9 +121,7 @@ public class DeltaDataFileUpdatesExtractor {
             dataFile.getLastModified(),
             true,
             // Allow callers to disable stats emission by passing an empty list in schema
-            emitStats
-                ? getColumnStats(schema, dataFile.getRecordCount(), dataFile.getColumnStats())
-                : null,
+            getColumnStats(schema, dataFile.getRecordCount(), dataFile.getColumnStats()),
             null,
             null));
   }

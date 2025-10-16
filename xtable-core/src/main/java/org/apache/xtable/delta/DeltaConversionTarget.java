@@ -187,34 +187,21 @@ public class DeltaConversionTarget implements ConversionTarget {
 
   @Override
   public void syncFilesForSnapshot(List<PartitionFileGroup> partitionedDataFiles) {
-    boolean emitStats = !shouldSkipDeltaStats();
     transactionState.setActions(
         dataFileUpdatesExtractor.applySnapshot(
-            deltaLog, partitionedDataFiles, transactionState.getLatestSchemaInternal(), emitStats));
+            deltaLog, partitionedDataFiles, transactionState.getLatestSchemaInternal()));
   }
 
   @Override
   public void syncFilesForDiff(InternalFilesDiff internalFilesDiff) {
-    boolean emitStats = !shouldSkipDeltaStats();
     transactionState.setActions(
         dataFileUpdatesExtractor.applyDiff(
             internalFilesDiff,
             transactionState.getLatestSchemaInternal(),
-            deltaLog.dataPath().toString(),
-            emitStats));
+            deltaLog.dataPath().toString()));
   }
 
-  private boolean shouldSkipDeltaStats() {
-    if (deltaLog == null || deltaLog.snapshot() == null) return false;
-    // Read an opt-in property from table metadata tags written earlier if present
-    Option<String> val =
-        deltaLog
-            .snapshot()
-            .metadata()
-            .configuration()
-            .get("xtable.delta.emitColumnStats");
-    return !val.isEmpty() && !Boolean.parseBoolean(val.get());
-  }
+  private boolean shouldSkipDeltaStats() { return false; }
 
   @Override
   public void completeSync() {
